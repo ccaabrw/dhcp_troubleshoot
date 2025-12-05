@@ -1,4 +1,4 @@
-# make_it_so
+# dhcp_troubleshoot
 
 ## DHCP Troubleshooting Script for Red Hat
 
