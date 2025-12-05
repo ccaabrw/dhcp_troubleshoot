@@ -17,15 +17,25 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Get the interface parameter if provided
+TARGET_INTERFACE="$1"
+
+# Validate interface name to prevent command injection
+if [ -n "$TARGET_INTERFACE" ]; then
+    # Interface names should only contain alphanumeric characters, hyphens, underscores, and dots
+    if ! [[ "$TARGET_INTERFACE" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        echo -e "${RED}Error: Invalid interface name '${TARGET_INTERFACE}'${NC}"
+        echo "Interface names should only contain alphanumeric characters, hyphens, underscores, and dots"
+        exit 1
+    fi
+fi
+
 # Check if script is run as root
 if [[ $EUID -ne 0 ]]; then
    echo -e "${RED}Error: This script must be run as root${NC}" 
    echo "Please run with: sudo $0"
    exit 1
 fi
-
-# Get the interface parameter if provided
-TARGET_INTERFACE="$1"
 
 echo "=========================================="
 echo "DHCP Troubleshooting Script for Red Hat"
@@ -75,7 +85,7 @@ for iface in $INTERFACES; do
     fi
     
     # Check interface status
-    STATE=$(ip link show "$iface" | grep -oP 'state \K\w+')
+    STATE=$(ip link show "$iface" | awk '/state/ {print $9}')
     if [ "$STATE" = "UP" ]; then
         print_success "Interface $iface is UP"
     else
@@ -125,16 +135,29 @@ fi
 print_header "DHCP Lease Information"
 
 # Check for dhclient leases
-LEASE_FILES=$(find /var/lib/dhclient /var/lib/NetworkManager -name "*.lease*" 2>/dev/null)
+LEASE_FILES=""
+if [ -d /var/lib/dhclient ]; then
+    LEASE_FILES=$(find /var/lib/dhclient -name "*.lease*" 2>/dev/null)
+fi
+if [ -d /var/lib/NetworkManager ]; then
+    NM_LEASES=$(find /var/lib/NetworkManager -name "*.lease*" 2>/dev/null)
+    if [ -n "$NM_LEASES" ]; then
+        LEASE_FILES="${LEASE_FILES}${LEASE_FILES:+$'\n'}${NM_LEASES}"
+    fi
+fi
+
 if [ -n "$LEASE_FILES" ]; then
     echo "Found DHCP lease files:"
-    for lease in $LEASE_FILES; do
+    while IFS= read -r lease; do
+        if [ -z "$lease" ]; then
+            continue
+        fi
         echo ""
         echo "File: $lease"
         if [ -f "$lease" ] && [ -r "$lease" ]; then
             tail -20 "$lease"
         fi
-    done
+    done <<< "$LEASE_FILES"
 else
     print_warning "No DHCP lease files found"
 fi
@@ -187,7 +210,8 @@ if command -v firewall-cmd &>/dev/null; then
         
         echo ""
         echo "DHCP service status in firewall:"
-        for zone in $(firewall-cmd --get-active-zones | grep -v '^\s'); do
+        # Get zones from first word of each non-indented line
+        for zone in $(firewall-cmd --get-active-zones | awk '/^[^ ]/ {print $1}'); do
             if firewall-cmd --zone="$zone" --list-services 2>/dev/null | grep -q dhcp; then
                 print_success "DHCP allowed in zone: $zone"
             else
