@@ -123,12 +123,23 @@ else
 fi
 
 # Check for dhclient process
-DHCLIENT_PROCS=$(ps aux | grep -v grep | grep dhclient)
-if [ -n "$DHCLIENT_PROCS" ]; then
-    print_success "dhclient processes found:"
-    echo "$DHCLIENT_PROCS"
+if command -v pgrep &>/dev/null; then
+    DHCLIENT_PIDS=$(pgrep dhclient)
+    if [ -n "$DHCLIENT_PIDS" ]; then
+        print_success "dhclient processes found:"
+        ps -p "$DHCLIENT_PIDS" -o pid,cmd | tail -n +2
+    else
+        print_warning "No dhclient processes running"
+    fi
 else
-    print_warning "No dhclient processes running"
+    # Fallback to ps and grep if pgrep not available
+    DHCLIENT_PROCS=$(ps aux | grep -v grep | grep dhclient)
+    if [ -n "$DHCLIENT_PROCS" ]; then
+        print_success "dhclient processes found:"
+        echo "$DHCLIENT_PROCS"
+    else
+        print_warning "No dhclient processes running"
+    fi
 fi
 
 # 3. Check DHCP Lease Information
@@ -286,7 +297,7 @@ for iface in $INTERFACES; do
     echo "Testing interface: $iface"
     
     # Get default gateway
-    GATEWAY=$(ip route show dev "$iface" | grep default | awk '{print $3}')
+    GATEWAY=$(ip route show | grep "default.*dev $iface" | awk '{print $3}' | head -1)
     if [ -n "$GATEWAY" ]; then
         print_success "Default gateway: $GATEWAY"
         
@@ -302,7 +313,12 @@ for iface in $INTERFACES; do
     fi
     
     # Check DNS
-    DNS_SERVERS=$(nmcli -g IP4.DNS device show "$iface" 2>/dev/null)
+    if command -v nmcli &>/dev/null; then
+        DNS_SERVERS=$(nmcli -g IP4.DNS device show "$iface" 2>/dev/null)
+    else
+        # Fallback to resolv.conf if nmcli not available
+        DNS_SERVERS=$(grep nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}' | tr '\n' ' ')
+    fi
     if [ -n "$DNS_SERVERS" ]; then
         print_success "DNS servers: $DNS_SERVERS"
     else
