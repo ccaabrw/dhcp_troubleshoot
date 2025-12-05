@@ -85,7 +85,7 @@ for iface in $INTERFACES; do
     fi
     
     # Check interface status
-    STATE=$(ip link show "$iface" | awk '/state/ {print $9}')
+    STATE=$(ip link show "$iface" | awk '/state [A-Z]+/ {for(i=1;i<=NF;i++) if($i=="state") print $(i+1)}')
     if [ "$STATE" = "UP" ]; then
         print_success "Interface $iface is UP"
     else
@@ -127,7 +127,8 @@ if command -v pgrep &>/dev/null; then
     DHCLIENT_PIDS=$(pgrep dhclient)
     if [ -n "$DHCLIENT_PIDS" ]; then
         print_success "dhclient processes found:"
-        ps -p "$DHCLIENT_PIDS" -o pid,cmd | tail -n +2
+        # Convert newlines to spaces for ps command
+        ps -p "$(echo "$DHCLIENT_PIDS" | tr '\n' ' ')" -o pid,cmd 2>/dev/null | tail -n +2
     else
         print_warning "No dhclient processes running"
     fi
@@ -192,6 +193,7 @@ if [ -d /etc/sysconfig/network-scripts ]; then
         if [ -f "$CONFIG_FILE" ]; then
             echo ""
             echo "Configuration for $TARGET_INTERFACE:"
+            echo "(Note: Sensitive values like passwords may be shown below)"
             cat "$CONFIG_FILE"
             
             # Check if BOOTPROTO is set to dhcp
@@ -296,8 +298,8 @@ for iface in $INTERFACES; do
     echo ""
     echo "Testing interface: $iface"
     
-    # Get default gateway
-    GATEWAY=$(ip route show | grep "default.*dev $iface" | awk '{print $3}' | head -1)
+    # Get default gateway - look for "via" keyword to find gateway address
+    GATEWAY=$(ip route show | awk '/default.*dev '"$iface"'/ {for(i=1;i<=NF;i++) if($i=="via" && $(i+1)) print $(i+1)}' | head -1)
     if [ -n "$GATEWAY" ]; then
         print_success "Default gateway: $GATEWAY"
         
